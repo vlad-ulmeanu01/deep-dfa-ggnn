@@ -8,6 +8,7 @@ import json
 import loader
 import design
 import utils
+from sklearn.metrics import precision_score, recall_score, f1_score
 
 random.seed(utils.DEFAULT_SEED)
 
@@ -17,6 +18,9 @@ def run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, dset_type)
         random.shuffle(all_graph_indices)
 
         all_graph_losses = []
+        y_true = []
+        y_pred = []
+
         for bs_ind in all_graph_indices:
             graph_id = dsets[dset_type].graph_ids[bs_ind]
             graph_embeddings = dsets[dset_type][bs_ind]
@@ -46,6 +50,9 @@ def run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, dset_type)
             
             want_vuln_score = torch.ones(1) if dsets[dset_type].vuln_verdict[graph_id] == "vuln" else torch.zeros(1)
 
+            y_true.append(int(dsets[dset_type].vuln_verdict[graph_id] == "vuln"))
+            y_pred.append(round(int(vuln_score)))
+
             loss = criterion(torch.cat([vuln_score, 1 - vuln_score]), torch.cat([want_vuln_score, 1 - want_vuln_score]))
 
             if dset_type == "train":
@@ -56,6 +63,9 @@ def run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, dset_type)
             all_graph_losses.append(loss.item())
 
     metrics[dset_type]["loss"].append(np.mean(all_graph_losses))
+    metrics[dset_type]["f1"].append(f1_score(y_true, y_pred))
+    metrics[dset_type]["precision"].append(precision_score(y_true, y_pred))
+    metrics[dset_type]["recall"].append(recall_score(y_true, y_pred))
 
 
 def main():
@@ -68,13 +78,13 @@ def main():
     criterion = torch.nn.BCELoss()
     optimizer = torch.optim.Adam(list(agg.parameters()) + list(upd.parameters()) + list(gap.parameters()) + list(mlp.parameters()))
 
-    metrics = {dset_type: {"loss": []} for dset_type in utils.DSET_TYPES} # , "accuracy": [], "f1": []
+    metrics = {dset_type: {"loss": [], "f1": [], "precision": [], "recall": []} for dset_type in utils.DSET_TYPES} # , "accuracy": [], "f1": []
 
     for epoch in range(1, utils.GGNN_NUM_EPOCHS + 1):
         for dset_type in utils.DSET_TYPES:
             run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, dset_type)
 
-        if epoch % utils.GGNN_DEBUG_SAVE_EVERY == 0 or epoch == utils.GGNN_EPOCH_CNT:
+        if epoch % utils.GGNN_DEBUG_SAVE_EVERY == 0:
             torch.save(agg.state_dict(), f"../ggnn_saves/agg_{runid}_{epoch}.pt")
             torch.save(upd.state_dict(), f"../ggnn_saves/upd_{runid}_{epoch}.pt")
             torch.save(gap.state_dict(), f"../ggnn_saves/gap_{runid}_{epoch}.pt")

@@ -3,10 +3,10 @@ import numpy as np
 import random
 import json
 
-random.seed(2309)
+random.seed(42)
 
-REAL_FOLDER = "/export/home/acs/stud/v/vlad_adrian.ulmeanu/Probleme/deep_dfa/DDFA/storage/processed/bigvul/"
-NUM_SAMPLES = 100
+REAL_FOLDER = "/home/alexandru/Desktop/Master-IA/An1-sem2/proiect-SSL-NLP/deep-dfa-ggnn/bigvul"
+NUM_SAMPLES = 1000
 TRAIN_RAP = 0.8
 NONVULN_RAP = 0.9
 

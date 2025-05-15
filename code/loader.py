@@ -15,7 +15,7 @@ class Dataset(torch.utils.data.Dataset):
 
         self.dset_type = dset_type
 
-        with open(f"{utils.TEST_FOLDER}/train_test_split_100_samples.json") as fin:
+        with open(f"{utils.TEST_FOLDER}/train_test_split_1000_samples.json") as fin:
             tmp_ht = json.load(fin)
 
             ht_tt_split_graph_ids = {dset_type: [graph_id for graph_id, _ in tmp_ht[dset_type]] for dset_type in tmp_ht}
@@ -24,11 +24,11 @@ class Dataset(torch.utils.data.Dataset):
             self.vuln_verdict = {graph_id: vuln for dset_type in utils.DSET_TYPES for graph_id, vuln in zip(ht_tt_split_graph_ids[dset_type], tmp_vuln_verdict[dset_type])}
 
         # {dgl_id}, [node_id], graph_id
-        self.df_nodes = pd.read_csv(f"{utils.TEST_FOLDER}/nodes_100_samples.csv")
+        self.df_nodes = pd.read_csv(f"{utils.TEST_FOLDER}/nodes_1000_samples.csv")
         self.df_nodes = self.df_nodes[self.df_nodes["graph_id"].isin(ht_tt_split_graph_ids[dset_type])]
 
         # {innode}, {outnode}, [id_x], [id_y], graph_id
-        self.df_edges = pd.read_csv(f"{utils.TEST_FOLDER}/edges_100_samples.csv")
+        self.df_edges = pd.read_csv(f"{utils.TEST_FOLDER}/edges_1000_samples.csv")
         self.df_edges = self.df_edges[self.df_edges["graph_id"].isin(ht_tt_split_graph_ids[dset_type])]
 
         # graph_id, [node_id], hash
@@ -42,7 +42,7 @@ class Dataset(torch.utils.data.Dataset):
             self.ht_used_property_names[cat] = {prop: i for prop, i in zip(self.ht_used_property_names[cat], itertools.count())}
 
         print(f"({dset_type = }) Loaded df_nodes, df_edges, df_tokens, used_property_names. {round(time.time() - t_start, 3)} s passed.", flush = True)
-        utils.print_used_memory()
+        # utils.print_used_memory()
 
         self.cnt_nodes_per_graph = {graph_id: 0 for graph_id in ht_tt_split_graph_ids[dset_type]}
         graph_node_dgi_map = {graph_id: {} for graph_id in ht_tt_split_graph_ids[dset_type]}
@@ -74,12 +74,16 @@ class Dataset(torch.utils.data.Dataset):
             for graph_id in self.graph_ids
         }
 
+        # print(self.df_edges)
         for graph_id, innode, outnode in zip(list(self.df_edges["graph_id"]), list(self.df_edges["innode"]), list(self.df_edges["outnode"])):
-            innode, outnode = int(innode), int(outnode)
+            try:
+                innode, outnode = int(innode), int(outnode)
+            except:
+                continue
             self.graphs_parent_list[graph_id][outnode].append(innode)
 
         print(f"({dset_type = }) Computed ht_nodes_sparse_rep, graphs_parent_list. {round(time.time() - t_start, 3)} s passed.", flush = True)
-        utils.print_used_memory()
+        # utils.print_used_memory()
 
 
     def __len__(self):
