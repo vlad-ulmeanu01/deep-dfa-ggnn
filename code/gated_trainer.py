@@ -1,3 +1,4 @@
+from sklearn.metrics import precision_score, recall_score, f1_score
 import torch.nn.functional as F
 import numpy as np
 import random
@@ -9,20 +10,22 @@ import tqdm
 import loader
 import design
 import utils
-from sklearn.metrics import precision_score, recall_score, f1_score
 
 random.seed(utils.DEFAULT_SEED)
 
 def run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, epoch, dset_type):
-    print(f"Started {epoch = }, {dset_type = }.")
+    t_start = time.time()
+    
+    print(f"Started run_net {epoch = }, {dset_type = }.", flush = True)
 
     with torch.set_grad_enabled(dset_type == "train"), torch.autograd.set_detect_anomaly(True):
         all_graph_indices = list(range(len(dsets[dset_type])))
         random.shuffle(all_graph_indices)
 
-        all_graph_losses, y_true, y_pred = [], [], []
+        sum_graph_losses, y_true, y_pred = 0.0, [], []
 
-        for bs_ind in tqdm.tqdm(all_graph_indices):
+        nbp_y_true, nbp_y_pred = [], []
+        for bs_ind in all_graph_indices:
             graph_id = dsets[dset_type].graph_ids[bs_ind]
             graph_embeddings = dsets[dset_type][bs_ind]
 
@@ -43,21 +46,35 @@ def run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, epoch, dse
             
             want_vuln_score = torch.ones(1, device = utils.DEVICE) if dsets[dset_type].vuln_verdict[graph_id] == "vuln" else torch.zeros(1, device = utils.DEVICE)
 
-            loss = criterion(torch.cat([vuln_score, 1 - vuln_score]), torch.cat([want_vuln_score, 1 - want_vuln_score]))
+            nbp_y_pred.append(vuln_score)
+            nbp_y_true.append(want_vuln_score)
 
-            if dset_type == "train":
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+            if len(nbp_y_pred) >= utils.BATCH_SIZE or bs_ind == all_graph_indices[-1]:
+                nbp_y_pred, nbp_y_true = torch.cat(nbp_y_pred), torch.cat(nbp_y_true)
+                loss = utils.focal_loss(nbp_y_pred, nbp_y_true)
 
-            all_graph_losses.append(loss.item())
-            y_true.append(int(dsets[dset_type].vuln_verdict[graph_id] == "vuln"))
-            y_pred.append(int(vuln_score.round().item()))
+                sum_graph_losses += loss.item() * len(nbp_y_pred)
 
-    metrics[dset_type]["loss"].append(np.mean(all_graph_losses))
+                if dset_type == "train":
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+
+                y_pred.extend(nbp_y_pred.round().tolist())
+                y_true.extend(nbp_y_true.tolist())
+                nbp_y_true, nbp_y_pred = [], []
+
+    # print(f"(dbg run_net {dset_type = }), {y_pred = }, {y_true = }", flush = True)
+
+    print(f"(dbg run_net {dset_type = }) num_samples = {len(y_true)}, # true vuln samples = {sum(y_true)}, # pred vuln samples = {sum(y_pred)}", flush = True)
+
+    metrics[dset_type]["loss"].append(sum_graph_losses / len(all_graph_indices))
     metrics[dset_type]["f1"].append(f1_score(y_true, y_pred, zero_division = 0.0))
     metrics[dset_type]["precision"].append(precision_score(y_true, y_pred, zero_division = 0.0))
     metrics[dset_type]["recall"].append(recall_score(y_true, y_pred, zero_division = 0.0))
+
+    print(f"Finished run_net {epoch = }, {dset_type = } in {round(time.time() - t_start, 3)} s.")
+    utils.print_used_memory()
 
 
 def main():
@@ -73,6 +90,8 @@ def main():
     metrics = {dset_type: {"loss": [], "f1": [], "precision": [], "recall": []} for dset_type in utils.DSET_TYPES}
 
     for epoch in range(1, utils.GGNN_NUM_EPOCHS + 1):
+        t_start = time.time()
+
         for dset_type in utils.DSET_TYPES:
             run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, epoch, dset_type)
 
@@ -85,7 +104,11 @@ def main():
             for dset_type in utils.DSET_TYPES:
                 with open(f"../ggnn_logs/metrics_log_{runid}_{dset_type}_{epoch}.json", "w") as fout:
                     json.dump(metrics[dset_type], fout, indent = 4)
+        
+        for dset_type in utils.DSET_TYPES:
+            print(f"{dset_type = }: " + ", ".join([f"{metric} = {round(metrics[dset_type][metric][-1], 3)}" for metric in metrics[dset_type]]), flush = True)
 
+        print(f"Finished {epoch = } in {round(time.time() - t_start, 3)} s.", flush = True)
 
 if __name__ == "__main__":
     main()
