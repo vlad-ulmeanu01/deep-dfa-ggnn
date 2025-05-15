@@ -4,6 +4,7 @@ import random
 import torch
 import time
 import json
+import tqdm
 
 import loader
 import design
@@ -12,46 +13,35 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 
 random.seed(utils.DEFAULT_SEED)
 
-def run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, dset_type):
+def run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, epoch, dset_type):
+    print(f"Started {epoch = }, {dset_type = }.")
+
     with torch.set_grad_enabled(dset_type == "train"), torch.autograd.set_detect_anomaly(True):
         all_graph_indices = list(range(len(dsets[dset_type])))
         random.shuffle(all_graph_indices)
 
-        all_graph_losses = []
-        y_true = []
-        y_pred = []
+        all_graph_losses, y_true, y_pred = [], [], []
 
-        for bs_ind in all_graph_indices:
+        for bs_ind in tqdm.tqdm(all_graph_indices):
             graph_id = dsets[dset_type].graph_ids[bs_ind]
             graph_embeddings = dsets[dset_type][bs_ind]
-
-            print(f"{graph_id = }")
 
             for ggnn_iter in range(1, utils.GGNN_NUM_ITERATIONS + 1):
                 parents_in_batch = []
 
                 for nod in range(dsets[dset_type].cnt_nodes_per_graph[graph_id]):
-                    parents_in = torch.mean(torch.stack([graph_embeddings[pa] for pa in dsets[dset_type].graphs_parent_list[graph_id][nod] + [nod]]), dim = 0)
+                    parents_in = torch.mean(torch.stack([graph_embeddings[pa] for pa in dsets[dset_type].graphs_parent_list[graph_id][nod]]), dim = 0)
                     parents_in_batch.append(parents_in)
 
                 # [node_count (variabil de la un graf la altul), TOP_K_PROP_NAMES * CNT_CATS].
                 parents_in_batch = torch.stack(parents_in_batch)
 
-                parents_out_agg_batch = agg(parents_in_batch)
-                parents_out_batch = upd(parents_out_agg_batch)
+                graph_embeddings = upd(agg(parents_in_batch)) # rescriem direct output-ul din UPD peste graph_embeddings.
 
-                for nod in range(dsets[dset_type].cnt_nodes_per_graph[graph_id]):
-                    graph_embeddings[nod] = parents_out_batch[nod]
-
-                print(f"finished {ggnn_iter = }")
-
-            mean_embedding = gap(parents_out_batch) # vrem graph_embeddings dupa GGNN_NUM_ITERATIONS runde de msg passing = parents_out, care ramane din for.
+            mean_embedding = gap(graph_embeddings) # vrem graph_embeddings dupa GGNN_NUM_ITERATIONS runde de msg passing = parents_out, care ramane din for.
             vuln_score = mlp(mean_embedding)
             
-            want_vuln_score = torch.ones(1) if dsets[dset_type].vuln_verdict[graph_id] == "vuln" else torch.zeros(1)
-
-            y_true.append(int(dsets[dset_type].vuln_verdict[graph_id] == "vuln"))
-            y_pred.append(round(int(vuln_score)))
+            want_vuln_score = torch.ones(1, device = utils.DEVICE) if dsets[dset_type].vuln_verdict[graph_id] == "vuln" else torch.zeros(1, device = utils.DEVICE)
 
             loss = criterion(torch.cat([vuln_score, 1 - vuln_score]), torch.cat([want_vuln_score, 1 - want_vuln_score]))
 
@@ -61,11 +51,13 @@ def run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, dset_type)
                 optimizer.step()
 
             all_graph_losses.append(loss.item())
+            y_true.append(int(dsets[dset_type].vuln_verdict[graph_id] == "vuln"))
+            y_pred.append(int(vuln_score.round().item()))
 
     metrics[dset_type]["loss"].append(np.mean(all_graph_losses))
-    metrics[dset_type]["f1"].append(f1_score(y_true, y_pred))
-    metrics[dset_type]["precision"].append(precision_score(y_true, y_pred))
-    metrics[dset_type]["recall"].append(recall_score(y_true, y_pred))
+    metrics[dset_type]["f1"].append(f1_score(y_true, y_pred, zero_division = 0.0))
+    metrics[dset_type]["precision"].append(precision_score(y_true, y_pred, zero_division = 0.0))
+    metrics[dset_type]["recall"].append(recall_score(y_true, y_pred, zero_division = 0.0))
 
 
 def main():
@@ -78,11 +70,11 @@ def main():
     criterion = torch.nn.BCELoss()
     optimizer = torch.optim.Adam(list(agg.parameters()) + list(upd.parameters()) + list(gap.parameters()) + list(mlp.parameters()))
 
-    metrics = {dset_type: {"loss": [], "f1": [], "precision": [], "recall": []} for dset_type in utils.DSET_TYPES} # , "accuracy": [], "f1": []
+    metrics = {dset_type: {"loss": [], "f1": [], "precision": [], "recall": []} for dset_type in utils.DSET_TYPES}
 
     for epoch in range(1, utils.GGNN_NUM_EPOCHS + 1):
         for dset_type in utils.DSET_TYPES:
-            run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, dset_type)
+            run_net(agg, upd, gap, mlp, dsets, criterion, optimizer, metrics, epoch, dset_type)
 
         if epoch % utils.GGNN_DEBUG_SAVE_EVERY == 0:
             torch.save(agg.state_dict(), f"../ggnn_saves/agg_{runid}_{epoch}.pt")

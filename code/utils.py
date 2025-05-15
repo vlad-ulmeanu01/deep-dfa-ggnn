@@ -7,18 +7,26 @@ import json
 import os
 
 DEFAULT_SEED = 42
-
-# BASE_SERVER_FOLDER = (
-#     "/home/vlad/Desktop/Probleme/deep_dfa_local/" if os.uname().nodename == "vlad-TM1701"
-#     else "/export/home/acs/stud/v/vlad_adrian.ulmeanu/Probleme/deep_dfa/"
-# )
-
 DSET_TYPES = ["train", "test"]
-
 DEVICE = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+NODENAME = os.uname().nodename
+NODENAME = "grid.pub.ro" if NODENAME.endswith("grid.pub.ro") else NODENAME
 
-TEST_FOLDER = "/home/alexandru/Desktop/Master-IA/An1-sem2/proiect-SSL-NLP/deep-dfa-ggnn/dummy_data"
-REAL_FOLDER = "/home/alexandru/Desktop/Master-IA/An1-sem2/proiect-SSL-NLP/deep-dfa-ggnn/bigvul"
+
+TEST_FOLDER = {
+    "vlad-TM1701": "/home/vlad/Desktop/Probleme/deep_dfa_local/local_implementation/dummy_data",
+    "alexandru": "/home/alexandru/Desktop/Master-IA/An1-sem2/proiect-SSL-NLP/deep-dfa-ggnn/dummy_data",
+    "grid.pub.ro": "???"
+}[NODENAME]
+
+REAL_FOLDER = {
+    "vlad-TM1701": "/home/vlad/Desktop/Probleme/deep_dfa_local/DDFA/storage/processed/bigvul",
+    "alexandru": "/home/alexandru/Desktop/Master-IA/An1-sem2/proiect-SSL-NLP/deep-dfa-ggnn/bigvul",
+    "grid.pub.ro": "/export/home/acs/stud/v/vlad_adrian.ulmeanu/Probleme/deep_dfa/DDFA/storage/processed/bigvul"
+}[NODENAME]
+
+
+LOADER_NUM_SAMPLES = 1000
 
 TOP_K_PROP_NAMES = 1000 # cate API/datatype/literal/operator sa tinem (top cele mai frecvente)
 CNT_CATS = 4 # API/datatype/literal/operator
@@ -26,12 +34,14 @@ CNT_CATS = 4 # API/datatype/literal/operator
 AGG_HIDDEN_SIZE = 256
 UPD_HIDDEN_SIZE = 32
 GGNN_NUM_ITERATIONS = 5 # pasi de message passing per fiecare graf intr-un train loop.
-GGNN_NUM_EPOCHS = 10 # 100
+GGNN_NUM_EPOCHS = 100
 
-GGNN_DEBUG_SAVE_EVERY = 5
+GGNN_DEBUG_SAVE_EVERY = 1
 
 
 def print_used_memory():
-    free, total = torch.cuda.mem_get_info(DEVICE)
-    print(f"Host memory used: {round(psutil.Process().memory_info().rss / (2 ** 30), 3)} GB.\nDevice memory used: {round((total - free) / (2 ** 30), 3)} GB.", flush = True)
+    print(f"Host memory used: {round(psutil.Process().memory_info().rss / (2 ** 30), 3)} GB.")
+    if NODENAME != "alexandru":
+        free, total = torch.cuda.mem_get_info(DEVICE)
+        print(f"Device memory used: {round((total - free) / (2 ** 30), 3)} GB.", flush = True)
 
